@@ -1,0 +1,21 @@
+# Environment / secrets
+.env
+*.env
+secrets.js
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node (if using clasp for deployment)
+node_modules/
+package-lock.json
+
+# Google Apps Script local dev
+.clasp.json
