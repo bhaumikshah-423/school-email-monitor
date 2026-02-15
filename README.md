@@ -6,7 +6,7 @@ Built for busy parents who are drowning in school emails and need the signal wit
 
 ![Cost](https://img.shields.io/badge/cost-$0%2Fmonth-brightgreen)
 ![Platform](https://img.shields.io/badge/platform-Google%20Apps%20Script-blue)
-![AI](https://img.shields.io/badge/AI-Google%20Gemini-orange)
+![AI](https://img.shields.io/badge/AI-Gemini%202.5%20Flash%20Lite-orange)
 ![Notifications](https://img.shields.io/badge/notifications-Slack-purple)
 ![Calendar](https://img.shields.io/badge/calendar-Apple%20iCal-red)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
@@ -349,27 +349,44 @@ https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:ge
 
 #### Free Tier vs. Paid — Do I Need to Pay?
 
-**No. The free tier is more than enough.**
+**No billing account is required to run this project.** The free tier quota is more than enough.
 
-| | Free Tier | Paid Tier |
+| | Free Tier (No Billing) | Paid Tier (Billing Enabled) |
 |---|---|---|
 | **Requests/minute** | 15 | 2,000 |
 | **Requests/day** | 1,500 | Unlimited |
-| **This bot uses** | **3-9 requests/day** | — |
-| **Cost** | $0 | Pay per token |
+| **This bot uses** | **~9-12 requests/day** | — |
+| **Cost** | $0 | Pay per token (but free credits cover it) |
+| **Credit card required** | No | Yes (but $300 free credit) |
 
 The bot makes 1 API call per label per run. With 3 labels (2 kids + town) running 3-4 times/day = ~9-12 requests/day. The free tier allows 1,500/day — you'll use less than 1% of your quota.
 
-**When you MIGHT need billing enabled (still free):**
+#### ⚠️ Important: Free Tier vs. Paid Tier Data Privacy
 
-Some Google Cloud projects require a billing account to be *linked* even for free-tier usage. Google gives **$300 free credit** for new accounts. If you hit a `429` error with `limit: 0`:
+This is the most important nuance most guides don't mention. **The biggest difference between free and paid isn't speed — it's how Google handles your data.**
+
+| | Free Tier (No Billing) | Paid Tier (Billing Enabled) |
+|---|---|---|
+| **Data used to train Google's models?** | **Yes** — Google may use your inputs and outputs to improve their models, including potential review by human workers | **No** — your data is not used for training |
+| **When does paid tier apply?** | — | As soon as you link a billing account, even if you stay within free volume limits |
+| **Best for** | Testing, non-sensitive content | Any data containing personal information |
+
+**What this means for school emails:** Your school emails likely contain your children's names, teacher names, school names, event details, and possibly other personal family information. On the free tier, this data *may* be reviewed by Google to improve their AI models.
+
+**Recommendation:**
+
+- **For testing and getting started:** Free tier is fine. Run the test functions, verify everything works.
+- **For daily production use with real school emails:** Enable billing. You likely won't be charged anything (Google gives $300 free credit for new accounts, and this bot's usage costs fractions of a penny), but your family's data will be protected from model training.
+
+**How to enable billing (takes 2 minutes):**
 
 1. Go to [console.cloud.google.com/billing](https://console.cloud.google.com/billing)
-2. Set up a billing account (requires a credit card, but you won't be charged)
-3. Link it to your project
-4. The free tier quota will then activate
+2. Click **"Create Account"** or **"Link a billing account"**
+3. Add a credit card — Google gives **$300 free credit** for new accounts
+4. Link the billing account to the project your API key belongs to
+5. That's it — you're now on paid tier terms even if your actual usage stays within free limits
 
-**You will NOT be charged** unless you explicitly upgrade to a paid plan and exceed free credits.
+> **Will I be charged?** Almost certainly not. Gemini 2.5 Flash Lite costs fractions of a cent per request. Even running 365 days/year at 12 requests/day, your annual cost would be well under $1 — covered entirely by the $300 free credit. But you now have the data privacy protection of the paid tier.
 
 #### Gemini Model Selection
 
@@ -591,8 +608,9 @@ CalendarApp.getCalendarById('your-calendar-id@group.calendar.google.com')
 
 | Problem | Solution |
 |---|---|
-| **Gemini 404 error** | Change `GEMINI_MODEL` to `gemini-2.0-flash` or `gemini-1.5-flash-latest` |
-| **Gemini 429 / quota** | Create API key in new project. Enable billing if `limit: 0` (free credits). |
+| **Gemini 404 error** | Model name changed. Try alternatives in order: `gemini-2.5-flash-lite` → `gemini-2.0-flash-lite` → `gemini-2.0-flash`. See [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md). |
+| **Gemini 429 / quota** | Create API key in a new project. If `limit: 0`, link a billing account (free $300 credit). See Step 4 for full walkthrough. |
+| **Gemini 403 / not enabled** | Enable the "Generative Language API" in your Google Cloud project. See [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md). |
 | **No Slack messages** | Run `test1_Slack`. Verify webhook URL. Check Slack channel permissions. |
 | **Emails not found** | Confirm label names match exactly (case-sensitive). Ensure emails are unread. |
 | **`.ics` won't open** | Open from **Apple Mail** app, not Gmail app. Gmail doesn't handle `.ics` well on iOS. |

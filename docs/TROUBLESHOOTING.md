@@ -43,6 +43,8 @@ You exceeded your current quota... limit: 0
    - Go to [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials) to find which project your key is in
    - Wait 5 minutes, then retry
 
+> **Note on billing + privacy:** Linking a billing account has a significant benefit beyond fixing quota errors — it moves you to Google's paid tier data terms, meaning your data is **no longer used to train their AI models**. Since school emails contain your children's names and personal information, this is the recommended setup for production use. See the README's [Data Privacy section](../README.md#%EF%B8%8F-important-free-tier-vs-paid-tier-data-privacy) for details.
+
 3. If you get `429` with a non-zero limit (e.g., `limit: 15`), you're just hitting the rate limit. The script runs a few requests per execution — this usually resolves itself. Just wait and retry.
 
 **Understanding Gemini free tier quotas:**
