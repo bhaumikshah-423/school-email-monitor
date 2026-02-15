@@ -463,13 +463,13 @@ const CONFIG = {
       name: 'Child1',        // Your kid's name
       grade: '6th grade',    // Grade to filter for
       gmail_label: 'school-6th',
-      emoji: '📘',
+      emoji: '💐🌷🌹🌸🌺',  // Visual identifier in Slack
     },
     {
       name: 'Child2',
       grade: '2nd grade',
       gmail_label: 'school-2nd',
-      emoji: '📗',
+      emoji: '🫲🥴🫱67',
     },
   ],
 
