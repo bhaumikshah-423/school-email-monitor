@@ -115,7 +115,7 @@ The email includes:
             ▼                      ▼
 ┌─────────────────────┐  ┌──────────────────────────────────────┐
 │   GOOGLE GEMINI AI   │  │   VERIFICATION ENGINE (no AI)        │
-│   (Paid tie )        │  │                                      │
+│   (Paid tier)        │  │                                      │
 │                      │  │   6 checks per event:                │
 │   • Reads emails     │  │   ✓ Date format valid                │
 │   • Filters by grade │  │   ✓ Date within reasonable range     │
