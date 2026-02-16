@@ -4,7 +4,7 @@
 
 Built for busy parents who are drowning in school emails and need the signal without the noise.
 
-![Cost](https://img.shields.io/badge/cost-$0%2Fmonth-brightgreen)
+![Cost](https://img.shields.io/badge/cost-~$0.10%2Fmonth-brightgreen)
 ![Platform](https://img.shields.io/badge/platform-Google%20Apps%20Script-blue)
 ![AI](https://img.shields.io/badge/AI-Gemini%202.5%20Flash%20Lite-orange)
 ![Notifications](https://img.shields.io/badge/notifications-Slack-purple)
@@ -463,13 +463,13 @@ const CONFIG = {
       name: 'Child1',        // Your kid's name
       grade: '6th grade',    // Grade to filter for
       gmail_label: 'school-6th',
-      emoji: '💐🌷🌹🌸🌺',  // Visual identifier in Slack
+      emoji: '📘',
     },
     {
       name: 'Child2',
       grade: '2nd grade',
       gmail_label: 'school-2nd',
-      emoji: '🫲🥴🫱67',
+      emoji: '📗',
     },
   ],
 
