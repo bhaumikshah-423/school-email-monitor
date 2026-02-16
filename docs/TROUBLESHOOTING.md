@@ -47,15 +47,15 @@ You exceeded your current quota... limit: 0
 
 3. If you get `429` with a non-zero limit (e.g., `limit: 15`), you're just hitting the rate limit. The script runs a few requests per execution — this usually resolves itself. Just wait and retry.
 
-**Understanding Gemini free tier quotas:**
+**Understanding Gemini quotas (paid tier with billing):**
 
 | Quota | Limit | Your usage |
 |---|---|---|
-| Requests per minute | 15 | 1-3 per run |
-| Requests per day | 1,500 | 9-12 per day |
-| Tokens per minute | 1,000,000 | ~2,000-5,000 per run |
-
-You'll use less than 1% of the daily quota.
+| Requests per minute | 2,000 | 1-3 per run |
+| Requests per day | Unlimited | 9-12 per day |
+| Input cost | $0.10 / 1M tokens | ~$0.0005 per run |
+| Output cost | $0.40 / 1M tokens | ~$0.0002 per run |
+| **Monthly cost** | | **~$0.08-$0.25** (covered by $300 free credit) |
 
 ### 403 — API Not Enabled
 
