@@ -1,6 +1,6 @@
 # 🏫 School Email Monitor
 
-**A free, AI-powered system that reads your kids' school emails, summarizes them by grade, sends you Slack notifications, and creates Apple Calendar events — all automatically.**
+**An AI-powered system that reads your kids' school emails, summarizes them by grade, sends Slack notifications to both parents, and creates Apple Calendar events automatically. Runs on Google Apps Script with Gemini AI for under $0.25/month.**
 
 Built for busy parents who are drowning in school emails and need the signal without the noise.
 
@@ -115,7 +115,7 @@ The email includes:
             ▼                      ▼
 ┌─────────────────────┐  ┌──────────────────────────────────────┐
 │   GOOGLE GEMINI AI   │  │   VERIFICATION ENGINE (no AI)        │
-│   (free tier)        │  │                                      │
+│   (Paid tier)        │  │                                      │
 │                      │  │   6 checks per event:                │
 │   • Reads emails     │  │   ✓ Date format valid                │
 │   • Filters by grade │  │   ✓ Date within reasonable range     │
