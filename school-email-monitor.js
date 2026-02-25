@@ -61,7 +61,6 @@ const CONFIG = {
     TOWN_EMOJI: '🏛️',
   };
   
-  
   const PROCESSED_LABEL = 'school-bot/processed'; // Bot applies this label after successful processing
 
 
