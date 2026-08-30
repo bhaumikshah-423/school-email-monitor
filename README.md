@@ -1,656 +1,350 @@
 # 🏫 School Email Monitor
 
-**An AI-powered system that reads your kids' school emails, summarizes them by grade, sends Slack notifications to both parents, and creates Apple Calendar events automatically. Runs on Google Apps Script with Gemini AI for under $0.25/month.**
+School Email Monitor reads labeled Gmail messages, uses Gemini to select relevant school information, verifies extracted dates and times against the original message, posts parent notifications to Slack, and emails iCalendar (`.ics`) attachments for Apple Calendar.
 
-Built for busy parents who are drowning in school emails and need the signal without the noise.
+It runs entirely in Google Apps Script—no server is required.
 
-![Cost](https://img.shields.io/badge/cost-~$0.10%2Fmonth-brightgreen)
 ![Platform](https://img.shields.io/badge/platform-Google%20Apps%20Script-blue)
-![AI](https://img.shields.io/badge/AI-Gemini%202.5%20Flash%20Lite-orange)
+![AI](https://img.shields.io/badge/AI-Gemini%203.5%20Flash--Lite-orange)
 ![Notifications](https://img.shields.io/badge/notifications-Slack-purple)
-![Calendar](https://img.shields.io/badge/calendar-Apple%20iCal-red)
+![Calendar](https://img.shields.io/badge/calendar-iCalendar-red)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
----
+## What V2 adds
 
-## 📖 The Problem
+- Individual Gmail-message tracking, so a new reply in an old thread is still processed.
+- Content-level Slack deduplication.
+- Stable calendar UIDs, update sequences, and cancellation support.
+- A script lock that prevents overlapping triggers from processing the same message.
+- Gemini structured JSON output with a fixed response schema.
+- Exact source-passage verification for parent notifications.
+- Strict validation of real dates, date evidence, explicit years, adjacent weekdays, start/end times, and plausible date ranges.
+- Low-confidence events are shown as blocked and are never sent to Calendar.
+- Safe HTML, Slack, and iCalendar escaping.
+- Retry-aware output state: successful work is not intentionally repeated when another delivery fails.
+- API keys and webhooks are stored in Apps Script properties, not source code.
 
-If you're a parent with kids in school, you know the pain:
+## How it works
 
-- **Dozens of emails per week** from teachers, the office, the district, the PTA
-- **Multiple kids = multiple streams** — each with their own grade-specific info buried in school-wide blasts
-- **Important dates get lost** — field trips, early dismissals, picture days, permission slip deadlines
-- **Both parents need to know** — but only one is usually on the email list
-- **You find out about the bake sale at 10 PM the night before**
-
-This project solves all of that.
-
----
-
-## ✨ What It Does
-
-Every morning at 7 AM (+ every 8 hours), this system automatically:
-
-1. **Reads** all unread school emails from a dedicated Gmail inbox
-2. **Filters** by grade — only shows you what's relevant to each kid
-3. **Summarizes** using Google Gemini AI (free tier)
-4. **Verifies** every date and fact against the original email (anti-hallucination)
-5. **Sends a Slack message** with the summary + verified events to both parents
-6. **Emails `.ics` calendar invites** that you tap to add to your Apple Family Calendar
-
----
-
-## 📱 What It Looks Like
-
-### Slack Notification
-
-```
-📘 Alex — 6th grade
-
-Math test Thursday Feb 12 on Ch 7. Permission slips
-for Science Museum trip due Feb 15. Early dismissal
-Wed at 1:30 PM.
-
-📅 Verified Events:
-> 1. Alex: Math Test Ch 7
->    📆 2026-02-12
->    📧 "Math test Thursday February 12 on Ch 7"
-> 2. Alex: Science Museum Trip
->    📆 2026-02-20 at 08:30
->    📧 "Science Museum trip Feb 20. Bus 8:30 AM"
-
-✉️ 2 .ics invite(s) sent to email.
+```text
+School email
+    │
+    ▼
+Gmail filter and label
+    │
+    ▼
+Apps Script reads one pending message
+    │
+    ├── Gemini selects relevant quoted facts and events
+    │
+    ├── Local code independently verifies evidence
+    │
+    ├── Slack receives verified source passages
+    │
+    └── Verified high-confidence events become .ics attachments
 ```
 
-### Calendar Invite Email (Professional HTML)
+Gemini decides what may be relevant, but the model's prose is not blindly trusted. Parent notification facts are displayed using exact passages found in the email. Calendar dates and times must also be present in the event's quoted source.
 
-<p align="center">
-  <img src="docs/images/email-screenshot.png" alt="Calendar invite email" width="400">
-</p>
+## Requirements
 
-The email includes:
-- Clean, professional formatting (no broken emoji characters)
-- Event details in a readable layout
-- Source quote from the original school email
-- Green "VERIFIED" badge (or yellow "LOW CONFIDENCE" warning)
-- One-tap `.ics` attachment for Apple Calendar
+- A Gmail or Google Workspace account for collecting school messages.
+- A [Gemini API key](https://aistudio.google.com/apikey).
+- A Slack workspace with an [incoming webhook](https://api.slack.com/messaging/webhooks).
+- An email address that will receive the `.ics` attachments.
 
----
+## 1. Prepare Gmail labels
 
-## 🏗️ Architecture
+Create one label per child and, optionally, one district-wide label. The example configuration expects:
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                         YOUR PERSONAL EMAIL                             │
-│                                                                          │
-│  Forwarding rules send school emails to dedicated Gmail:                 │
-│    • Kid 1's school  ──→  schoolbot+6th@gmail.com                       │
-│    • Kid 2's school  ──→  schoolbot+2nd@gmail.com                       │
-│    • District/Town   ──→  schoolbot+town@gmail.com                      │
-└────────────────────────────────┬─────────────────────────────────────────┘
-                                 │
-                                 ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                      COLLECTOR GMAIL ACCOUNT                             │
-│                                                                          │
-│  Gmail filters auto-label by "To" address:                               │
-│    • schoolbot+6th@gmail.com   ──→  label: school-6th                   │
-│    • schoolbot+2nd@gmail.com   ──→  label: school-2nd                   │
-│    • schoolbot+town@gmail.com  ──→  label: school-town                  │
-└────────────────────────────────┬─────────────────────────────────────────┘
-                                 │
-                                 │  Triggered every 8 hours + 7 AM daily
-                                 ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                      GOOGLE APPS SCRIPT                                  │
-│                      (runs free on Google's servers)                      │
-│                                                                          │
-│  For each label (kid / town):                                            │
-│    1. Fetch unread emails                                                │
-│    2. Send to Gemini AI for analysis                                     │
-│    3. Run local verification engine                                      │
-│    4. Post to Slack + send .ics invites                                  │
-└───────────┬──────────────────────┬───────────────────────────────────────┘
-            │                      │
-            ▼                      ▼
-┌─────────────────────┐  ┌──────────────────────────────────────┐
-│   GOOGLE GEMINI AI   │  │   VERIFICATION ENGINE (no AI)        │
-│   (Paid tier)        │  │                                      │
-│                      │  │   6 checks per event:                │
-│   • Reads emails     │  │   ✓ Date format valid                │
-│   • Filters by grade │  │   ✓ Date within reasonable range     │
-│   • Extracts events  │  │   ✓ Date found in original email     │
-│   • Cites sources    │  │   ✓ Source quote matches email       │
-│   • Rates confidence │  │   ✓ Time format valid                │
-│                      │  │   ✓ Confidence level check           │
-│   Temperature: 0.0   │  │                                      │
-│   (zero creativity)  │  │   BLOCKED = not sent to calendar     │
-└─────────────────────┘  │   VERIFIED = sent to calendar        │
-                          └──────────────────────────────────────┘
-            │                      │
-            ▼                      ▼
-┌─────────────────────┐  ┌─────────────────────────────┐
-│   SLACK WEBHOOK      │  │   EMAIL + .ICS ATTACHMENT    │
-│                      │  │                              │
-│   #school-updates    │  │   Professional HTML email    │
-│   Both parents see   │  │   with .ics file attached    │
-│   instant alerts     │  │                              │
-│                      │  │   Tap → Add to Apple         │
-│   ✅ Verified events │  │   Family Calendar            │
-│   ⚠️ Flagged items   │  │                              │
-│   ❌ Blocked fakes   │  │   1-hour + 1-day reminders   │
-└─────────────────────┘  └─────────────────────────────┘
+```text
+school-child1
+school-child2
+school-district
 ```
 
----
+Create Gmail filters or forwarding rules that apply the appropriate label to incoming school messages. Labels are exact and case-sensitive.
 
-## 💬 Why Slack? (And Not SMS/iMessage/WhatsApp)
+You can use Gmail `+` aliases to route forwarded mail into one collector account:
 
-I originally built this with SMS text messages using carrier email-to-SMS gateways (e.g., `number@tmomail.net`). Here's why I switched:
-
-| Option | Problem |
-|---|---|
-| **SMS (carrier gateway)** | Unreliable delivery. T-Mobile, AT&T, and others increasingly block automated email-to-SMS. Messages arrive late or not at all. No rich formatting. |
-| **iMessage** | Apple provides zero API access. Cannot send iMessages programmatically. Period. |
-| **WhatsApp** | Requires Meta Business API with paid per-message pricing. Not free. |
-| **Telegram** | Free and reliable, but requires both parents to install another app they may not use |
-| **Slack ✅** | Free tier is generous. Instant push notifications. Rich formatting (bold, quotes, links). Both parents see the same channel. Works on iOS and Android. No message limits for our volume. |
-
-**Slack is the sweet spot**: free, instant, reliable, rich formatting, and both parents get notifications without any carrier nonsense.
-
----
-
-## 🛡️ Anti-Hallucination: How Verification Works
-
-AI can hallucinate — it might invent dates, create events that don't exist, or misread information. This system has **3 layers of protection** to ensure nothing fake reaches your calendar:
-
-### Layer 1: Strict Prompt Engineering (AI Side)
-
-- **Temperature set to 0.0** — most deterministic output, zero creativity
-- AI must provide a `source_quote` — the exact phrase from the email for every event
-- AI must self-rate `confidence` as "high" or "low"
-- Vague references like "field trip soon" or "sometime next month" with no specific date → AI is instructed to NOT create an event
-
-### Layer 2: Local Verification Engine (Code Side, No AI)
-
-Every event Gemini returns is checked by pure string-matching against the raw email text:
-
-| Check | What It Catches |
-|---|---|
-| Date format | Malformed dates like `2026-13-45` |
-| Date range | Dates more than 1 year in past or future |
-| **Date in email** | Searches for the date in every common format (`Feb 20`, `2/20`, `February 20th`, `02/20/2026`, etc.) in the actual email. **If the date doesn't appear anywhere in any email, the event is blocked.** |
-| Source quote | Verifies ≥60% of the quoted words exist in the email text |
-| Time format | Strips invalid times rather than sending bad data |
-| Confidence | Flags low-confidence events for manual review |
-
-### Layer 3: Parent Notification (Transparency)
-
-- ✅ **Verified events** → `.ics` calendar invite sent + "VERIFIED" badge in email
-- ❌ **Unverified events** → **Blocked from calendar**. Parent gets Slack message: "Could not verify: [event]. Reason: Date not found in email. Please check manually."
-- ⚠️ **Low confidence events** → Sent but flagged with yellow warning in both Slack and email
-- 📧 **Source quotes included** → Every calendar event shows the exact email text it was extracted from, so you can trace it back
-
----
-
-## 💰 Cost Breakdown
-
-| Service | Cost | Notes |
-|---|---|---|
-| Gmail (collector) | Free | Google account |
-| Google Apps Script | Free | Runs on Google's servers |
-| Google Gemini API | Free | Free tier: 1,500 requests/day (bot uses ~3-9/day) |
-| Slack | Free | Free plan supports unlimited messages in channels |
-| Apple Calendar `.ics` | Free | Standard calendar format |
-| **Total** | **$0/month** | |
-
----
-
-## 🚀 Complete Setup Guide
-
-**Time required: ~20 minutes**
-
-### Prerequisites
-
-- A Google/Gmail account
-- A free Slack workspace
-- An iPhone with Apple Calendar
-- A computer to set up the script (one-time)
-
----
-
-### Step 1: Create a Dedicated Collector Gmail Account
-
-**Why a separate account?** Your personal inbox stays clean. All school emails funnel into one place where the bot can read them without touching your personal email.
-
-1. Go to [accounts.google.com](https://accounts.google.com) and create a new Gmail account
-   - Example: `yourfamily.school@gmail.com`
-   - This is the account the bot will read from
-2. Remember the credentials — you'll need to log into this account for Steps 4-8
-
----
-
-### Step 2: Set Up Email Forwarding from Your Personal Email
-
-In your **personal email** (the one that currently receives school emails), you'll create forwarding rules to send school emails to the collector account.
-
-#### The Gmail + Alias Trick (Recommended)
-
-Gmail ignores everything after a `+` in an email address. So if your collector email is `yourfamily.school@gmail.com`:
-
-- `yourfamily.school+6th@gmail.com` → same inbox
-- `yourfamily.school+2nd@gmail.com` → same inbox
-- `yourfamily.school+town@gmail.com` → same inbox
-
-All three arrive in the same inbox, but the **"To" address is different**, which makes filtering reliable.
-
-#### 2a. Enable Forwarding (One-Time)
-
-In your **personal Gmail**:
-1. Settings ⚙️ → **See all settings** → **Forwarding and POP/IMAP**
-2. Click **"Add a forwarding address"**
-3. Add all three:
-   - `yourfamily.school+6th@gmail.com`
-   - `yourfamily.school+2nd@gmail.com`
-   - `yourfamily.school+town@gmail.com`
-4. Google sends a confirmation to the collector account — log in there and confirm each
-
-#### 2b. Create Forwarding Filters in Personal Gmail
-
-Go to Settings ⚙️ → **Filters and Blocked Addresses** → **Create a new filter**
-
-**Filter 1 — Kid 1 (e.g., 6th grade):**
-| Field | Value |
-|---|---|
-| From | `teacher1@school.org OR office@school.org` |
-
-*(Use the actual "From" addresses you see on school emails for this kid)*
-
-→ Create filter → ☑ **Forward it to** `yourfamily.school+6th@gmail.com`
-→ ☑ Also apply to matching conversations
-
-**Filter 2 — Kid 2 (e.g., 2nd grade):**
-| Field | Value |
-|---|---|
-| From | `teacher2@school.org OR 2ndgrade@school.org` |
-
-→ Forward to `yourfamily.school+2nd@gmail.com`
-
-**Filter 3 — Town/District:**
-| Field | Value |
-|---|---|
-| From | `superintendent@district.org OR noreply@district.org` |
-
-→ Forward to `yourfamily.school+town@gmail.com`
-
-> **Tip:** If both kids are at the same school and emails come from the same address (e.g., `office@school.org`), you can forward everything to one alias and let the AI sort by grade. Or use subject-line keywords in your filters.
-
----
-
-### Step 3: Create Gmail Labels in the Collector Account
-
-Log into your **collector Gmail account** (`yourfamily.school@gmail.com`).
-
-Create 3 filters based on the "To" address:
-
-**Filter 1:**
-1. Settings ⚙️ → Filters → Create new filter
-2. **To:** `yourfamily.school+6th@gmail.com`
-3. Create filter → ☑ Apply label: **Create new → `school-6th`**
-4. ☑ Also apply to matching conversations
-
-**Filter 2:**
-- **To:** `yourfamily.school+2nd@gmail.com` → Label: `school-2nd`
-
-**Filter 3:**
-- **To:** `yourfamily.school+town@gmail.com` → Label: `school-town`
-
-Now every school email auto-labels itself based on which kid/source it's for.
-
----
-
-### Step 4: Set Up Google Gemini API (Free Tier)
-
-This bot uses **Gemini 2.5 Flash Lite** — Google's lightweight AI model. The free tier is more than enough for this project.
-
-#### 4a. Create a Google Cloud Project (If You Don't Have One)
-
-1. Go to [console.cloud.google.com](https://console.cloud.google.com)
-2. If prompted, agree to the Terms of Service
-3. Click the project dropdown at the top → **"New Project"**
-4. Name it: `School Email Monitor` → Click **Create**
-5. Make sure it's selected as the active project
-
-#### 4b. Enable the Gemini API
-
-1. Go to [aistudio.google.com](https://aistudio.google.com)
-2. Sign in with your Google account
-3. If prompted to enable the API, click **Enable**
-4. Alternatively, go directly to [console.cloud.google.com/apis/library](https://console.cloud.google.com/apis/library) → search for **"Generative Language API"** → click **Enable**
-
-#### 4c. Create an API Key
-
-1. Go to [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
-2. Click **"Create API Key"**
-3. Select **"Create API key in new project"** (recommended) or select your existing project
-4. Copy the key — save it somewhere secure for Step 7
-
-#### 4d. Verify Your Key Works
-
-You can test the key immediately by running this in your browser's address bar (replace `YOUR_KEY`):
-
-```
-https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=YOUR_KEY
+```text
+family.school+child1@gmail.com
+family.school+child2@gmail.com
+family.school+district@gmail.com
 ```
 
-- If you get a response (even an error about missing body), the key works
-- If you get `API_KEY_INVALID`, double-check the key
-- If you get `NOT_FOUND`, the model name may have changed (see Troubleshooting)
+All aliases arrive in the same Gmail inbox, but Gmail filters can distinguish the `To` address and apply different labels.
 
-#### Free Tier vs. Paid — Do I Need to Pay?
+## 2. Create the Apps Script project
 
-**No billing account is required to run this project.** The free tier quota is more than enough.
+1. Sign in to the collector Gmail account.
+2. Open [script.google.com](https://script.google.com).
+3. Create a new project.
+4. Rename it **School Email Monitor**.
+5. Replace the entire contents of `Code.gs` with [`school-email-monitor.js`](school-email-monitor.js).
+6. In **Project Settings**, set the time zone to your local IANA time zone, such as `America/New_York`.
 
-| | Free Tier (No Billing) | Paid Tier (Billing Enabled) |
-|---|---|---|
-| **Requests/minute** | 15 | 2,000 |
-| **Requests/day** | 1,500 | Unlimited |
-| **This bot uses** | **~9-12 requests/day** | — |
-| **Cost** | $0 | Pay per token (but free credits cover it) |
-| **Credit card required** | No | Yes (but $300 free credit) |
+The Apps Script project and the `CONFIG.TIMEZONE` value must agree.
 
-The bot makes 1 API call per label per run. With 3 labels (2 kids + town) running 3-4 times/day = ~9-12 requests/day. The free tier allows 1,500/day — you'll use less than 1% of your quota.
+## 3. Customize the non-secret configuration
 
-#### ⚠️ Important: Free Tier vs. Paid Tier Data Privacy
-
-This is the most important nuance most guides don't mention. **The biggest difference between free and paid isn't speed — it's how Google handles your data.**
-
-| | Free Tier (No Billing) | Paid Tier (Billing Enabled) |
-|---|---|---|
-| **Data used to train Google's models?** | **Yes** — Google may use your inputs and outputs to improve their models, including potential review by human workers | **No** — your data is not used for training |
-| **When does paid tier apply?** | — | As soon as you link a billing account, even if you stay within free volume limits |
-| **Best for** | Testing, non-sensitive content | Any data containing personal information |
-
-**What this means for school emails:** Your school emails likely contain your children's names, teacher names, school names, event details, and possibly other personal family information. On the free tier, this data *may* be reviewed by Google to improve their AI models.
-
-**Recommendation:**
-
-- **For testing and getting started:** Free tier is fine. Run the test functions, verify everything works.
-- **For daily production use with real school emails:** Enable billing. You likely won't be charged anything (Google gives $300 free credit for new accounts, and this bot's usage costs fractions of a penny), but your family's data will be protected from model training.
-
-**How to enable billing (takes 2 minutes):**
-
-1. Go to [console.cloud.google.com/billing](https://console.cloud.google.com/billing)
-2. Click **"Create Account"** or **"Link a billing account"**
-3. Add a credit card — Google gives **$300 free credit** for new accounts
-4. Link the billing account to the project your API key belongs to
-5. That's it — you're now on paid tier terms even if your actual usage stays within free limits
-
-> **Will I be charged?** Almost certainly not. Gemini 2.5 Flash Lite costs fractions of a cent per request. Even running 365 days/year at 12 requests/day, your annual cost would be well under $1 — covered entirely by the $300 free credit. But you now have the data privacy protection of the paid tier.
-
-#### Gemini Model Selection
-
-This project uses `gemini-2.5-flash-lite` — the fastest and most cost-effective model. If it's unavailable, try these alternatives in order:
-
-| Model | Speed | Quality | Free Tier |
-|---|---|---|---|
-| `gemini-2.5-flash-lite` ✅ | Fastest | Great for extraction | Yes |
-| `gemini-2.0-flash-lite` | Fast | Good | Yes |
-| `gemini-2.0-flash` | Medium | Better | Yes |
-| `gemini-1.5-flash-latest` | Medium | Good | Yes |
-
-Change the model in `CONFIG.GEMINI_MODEL` if needed. No other code changes required.
-
----
-
-### Step 5: Set Up Slack
-
-#### 5a. Create a Free Workspace
-
-1. Go to [slack.com](https://slack.com) → **Create a new workspace**
-2. Name it something like "Family School Updates"
-3. Create a channel: `#school-updates`
-4. Invite your partner/co-parent
-
-#### 5b. Create a Slack Webhook
-
-1. Go to [api.slack.com/apps](https://api.slack.com/apps)
-2. Click **"Create New App"** → **"From Scratch"**
-3. **App Name:** `School Bot` | **Workspace:** select yours
-4. In the left sidebar → **Incoming Webhooks** → Toggle **ON**
-5. Scroll down → **"Add New Webhook to Workspace"**
-6. Select the `#school-updates` channel → **Allow**
-7. Copy the **Webhook URL** (looks like `https://hooks.slack.com/services/T.../B.../xxx`)
-
-#### 5c. Enable Notifications on Both Phones
-
-Both parents should:
-1. Install the Slack app on their phone
-2. Open the `#school-updates` channel
-3. Tap the channel name at top → **Notifications** → **Every new message**
-
----
-
-### Step 6: Create the Google Apps Script Project
-
-1. **Log into your collector Gmail account** in the browser
-2. Go to [script.google.com](https://script.google.com)
-3. Click **"New Project"**
-4. Click "Untitled project" at the top → rename to `School Email Monitor`
-5. **Delete** all default code in the editor
-6. Copy the entire contents of [`school-email-monitor.js`](school-email-monitor.js) from this repo
-7. **Paste** into the editor
-8. Press **Ctrl+S** (Cmd+S on Mac) to save
-
-> **Important:** You must be logged into the collector Gmail account. The script reads emails from whichever Google account owns the Apps Script project.
-
----
-
-### Step 7: Configure Your Settings
-
-At the top of the script, update the `CONFIG` object:
+Edit only the `CONFIG` block near the top of the script:
 
 ```javascript
-const CONFIG = {
-  GEMINI_API_KEY: 'paste-your-gemini-key-here',
-  GEMINI_MODEL: 'gemini-2.5-flash-lite',
-  SLACK_WEBHOOK_URL: 'https://hooks.slack.com/services/YOUR/WEBHOOK/URL',
-  PERSONAL_EMAIL: 'you@icloud.com',  // Where .ics invites go
+const CONFIG = Object.freeze({
+  GEMINI_MODEL: 'gemini-3.5-flash-lite',
+  CALENDAR_EMAIL: 'parent@example.com',
   TIMEZONE: 'America/New_York',
 
   KIDS: [
     {
-      name: 'Child1',        // Your kid's name
-      grade: '6th grade',    // Grade to filter for
-      gmail_label: 'school-6th',
-      emoji: '📘',
+      name: 'Child1',
+      grade: '7th grade',
+      school: 'Middle School',
+      gmail_label: 'school-child1',
+      emoji: '📘'
     },
     {
       name: 'Child2',
-      grade: '2nd grade',
-      gmail_label: 'school-2nd',
-      emoji: '📗',
-    },
+      grade: '3rd grade',
+      school: 'Elementary School',
+      gmail_label: 'school-child2',
+      emoji: '📗'
+    }
   ],
 
-  TOWN_LABEL: 'school-town',
-  TOWN_NAME: 'Town/District',   // Or your actual town name
-  TOWN_EMOJI: '🏛️',
-};
+  TOWN_LABEL: 'school-district',
+  TOWN_NAME: 'School District',
+  TOWN_EMOJI: '🏛️'
+});
 ```
 
-| Setting | What to enter |
+Set `TOWN_LABEL` to an empty string (`''`) if district-wide processing is not needed.
+
+Do not put API keys or Slack webhooks in `CONFIG`.
+
+## 4. Add Script properties
+
+In the Apps Script editor:
+
+1. Click the **gear icon** in the lower-left corner.
+2. Open **Project Settings**.
+3. Scroll to **Script properties**.
+4. Add these properties:
+
+| Property | Value |
 |---|---|
-| `GEMINI_API_KEY` | Your key from Step 4 |
-| `SLACK_WEBHOOK_URL` | Your webhook from Step 5b |
-| `PERSONAL_EMAIL` | Email on your iPhone where you want `.ics` invites (iCloud works best) |
-| `TIMEZONE` | Your timezone ([list](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)) |
-| `KIDS` | One entry per child: name, grade, and matching Gmail label from Step 3 |
-| `TOWN_LABEL` | Gmail label for district-wide emails |
+| `GEMINI_API_KEY` | Your Gemini API key |
+| `SLACK_WEBHOOK_URL` | Your Slack incoming webhook URL |
 
----
+Do not add quotation marks. Save the properties.
 
-### Step 8: Authorize & Run Tests
+Script properties are private to the Apps Script project. Never commit their values to GitHub, screenshots, logs, or documentation. If a Slack webhook is exposed, revoke and replace it immediately.
 
-#### 8a. First-Time Authorization
+## 5. Run the deployment tests
 
-1. In the script editor, select **`test1_Slack`** from the function dropdown (top bar)
-2. Click **▶ Run**
-3. A popup says "Authorization required" → Click **"Review permissions"**
-4. Select your collector Gmail account
-5. Warning: "Google hasn't verified this app" → Click **"Advanced"** → **"Go to School Email Monitor (unsafe)"**
-6. Click **"Allow"**
+Select and run these functions in order from the Apps Script toolbar:
 
-> **This is safe** — you wrote the script. It only accesses your own Gmail account.
+### `runLocalVerificationTests()`
 
-#### 8b. Run All Tests in Order
+Runs eight offline checks without contacting Gmail, Gemini, Slack, or Calendar.
 
-| Order | Function | What It Tests | Expected Result |
-|---|---|---|---|
-| 1 | `test1_Slack` | Slack connection | Message appears in `#school-updates` |
-| 2 | `test2_Gemini` | AI analysis + grade filtering | Check Execution Log for summary + events |
-| 3 | `test3_CalendarInvite` | `.ics` email delivery | HTML email with attachment arrives |
-| 4 | `test4_TownEmails` | Town/district processing | Check Execution Log for verified events |
-| 5 | `test5_HallucinationCheck` | Verification catches fake data | Log shows "PASS: All hallucinated events blocked" |
-| 6 | `test6_FullPipeline` | Full end-to-end for all kids | Slack messages + calendar emails arrive |
+Expected log:
 
-**To check logs:** View → Execution log (or click 📋 Executions in the left sidebar)
-
----
-
-### Step 9: Go Live
-
-Run **`setupTriggers()`** once. This creates:
-
-| Trigger | Schedule | Purpose |
-|---|---|---|
-| Every 8 hours | ~3x/day rolling | Catches afternoon and evening emails |
-| Daily 7 AM | Every morning | Priority morning check for daily school updates |
-
-**That's it. You're live.**
-
-To verify triggers are active: Click the **⏰ clock icon** in the left sidebar. You should see 2 triggers listed.
-
-> **No deployment needed.** Google Apps Script runs server-side. Once saved + triggers set = it's running.
-
----
-
-## 📁 Repository Structure
-
-```
-school-email-monitor/
-├── README.md                       # This file
-├── LICENSE                         # MIT License
-├── school-email-monitor.js         # Main script — paste into Apps Script
-└── docs/
-    ├── TROUBLESHOOTING.md          # Common issues and fixes
-    ├── CUSTOMIZATION.md            # Modify for your needs
-    └── images/
-        └── email-screenshot.png    # Sample email screenshot
+```text
+All 8 local verification tests passed.
 ```
 
----
+### `testGeminiConnection()`
 
-## 🔧 Customization
+Uses synthetic school text to verify the API key, selected model, structured output, and local evidence checks. It does not read Gmail or send notifications.
 
-### Add or Remove Kids
+### `testSlackConnection()`
 
-Edit the `KIDS` array in `CONFIG`. Works with any number of children.
+Sends one clearly marked test message to the configured Slack channel.
 
-### One Kid Only
+### `testCalendarConnection()`
 
-```javascript
-KIDS: [
-  { name: 'Child1', grade: '6th grade', gmail_label: 'school-6th', emoji: '📘' },
-],
+Emails one clearly marked test `.ics` attachment for two days in the future. Open it to confirm your calendar workflow, then delete the test event.
+
+The first Gmail-related execution will request account authorization. Review and approve the requested permissions while signed in to the collector account.
+
+If any test fails, inspect **Executions → Logs** before creating a trigger.
+
+### Repository test suite
+
+The repository also includes a Node-based Apps Script mock suite covering date/time evidence, cross-year dates, escaping, message-level state, duplicate suppression, stable calendar UIDs, updates, and cancellations:
+
+```bash
+TZ=America/New_York node tests/offline-test.js
 ```
 
-### Three+ Kids
+GitHub Actions runs the syntax check and mocked suite on every push and pull request. These tests make no network requests and use no real credentials.
 
-Just add more entries to the array. Each needs its own Gmail label.
+## 6. Migrate from V1 without repeating recent mail
 
-### Change the Schedule
+V1 tracked entire Gmail threads using a label. V2 tracks Gmail message IDs in Script properties, so the V2 ledger initially starts empty.
 
-Modify `setupTriggers()` or delete and recreate triggers:
+If V1 already handled the messages from the configured lookback period, run:
 
-```javascript
-// Every 4 hours instead of 8
-ScriptApp.newTrigger('checkSchoolEmails')
-  .timeBased().everyHours(4).create();
-
-// Fixed times: 7 AM, 2 PM, 9 PM
-ScriptApp.newTrigger('checkSchoolEmails')
-  .timeBased().atHour(7).everyDays(1).create();
-ScriptApp.newTrigger('checkSchoolEmails')
-  .timeBased().atHour(14).everyDays(1).create();
-ScriptApp.newTrigger('checkSchoolEmails')
-  .timeBased().atHour(21).everyDays(1).create();
+```text
+baselineExistingMessages()
 ```
 
-### Switch to Separate Slack Channels per Kid
+This records matching recent messages without calling Gemini and without sending Slack or calendar output.
 
-1. Create channels: `#child1-6th`, `#child2-2nd`, `#town-updates`
-2. Create a webhook for each channel
-3. Add `slack_webhook` to each kid in CONFIG
-4. Modify `processKidEmails()` to use the kid-specific webhook
+Skip this function if V2 should analyze existing recent messages.
 
-### Use Google Calendar Instead of Apple Calendar
+## 7. Enable monitoring
 
-Replace `sendCalendarInvite()` with Google Calendar API:
-```javascript
-CalendarApp.getCalendarById('your-calendar-id@group.calendar.google.com')
-  .createEvent(event.title, startDate, endDate, { description: event.description });
+Run:
+
+```text
+setup()
 ```
 
----
+`setup()`:
 
-## ❗ Troubleshooting
+1. Validates the Script properties.
+2. Confirms that every configured Gmail label exists.
+3. Removes existing `checkSchoolEmails` triggers.
+4. Creates one trigger that runs every four hours.
 
-| Problem | Solution |
+You can run `manualRun()` for an immediate check or `removeTriggers()` to stop scheduled monitoring.
+
+Apps Script time-based triggers run within a scheduling window rather than at an exact minute.
+
+## Duplicate, update, and cancellation behavior
+
+| Situation | V2 behavior |
 |---|---|
-| **Gemini 404 error** | Model name changed. Try alternatives in order: `gemini-2.5-flash-lite` → `gemini-2.0-flash-lite` → `gemini-2.0-flash`. See [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md). |
-| **Gemini 429 / quota** | Create API key in a new project. If `limit: 0`, link a billing account (free $300 credit). See Step 4 for full walkthrough. |
-| **Gemini 403 / not enabled** | Enable the "Generative Language API" in your Google Cloud project. See [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md). |
-| **No Slack messages** | Run `test1_Slack`. Verify webhook URL. Check Slack channel permissions. |
-| **Emails not found** | Confirm label names match exactly (case-sensitive). Ensure emails are unread. |
-| **`.ics` won't open** | Open from **Apple Mail** app, not Gmail app. Gmail doesn't handle `.ics` well on iOS. |
-| **Broken emoji (??????)** | Already fixed in this version. The `name` field and email body use plain text only. |
-| **Script timeout** | Google Apps Script has a 6-minute limit. Very rare unless 100+ emails accumulate. |
-| **Wrong grade filtering** | Check Gmail labels. Send a test email to each alias and verify the label is applied. |
-| **Triggers not firing** | Re-run `setupTriggers()`. Check Executions tab for errors. Re-authorize if prompted. |
-| **Want to stop the bot** | Run `removeTriggers()` |
+| Same Gmail message is seen again | Skipped by message ID |
+| Identical forwarded content has a different Gmail ID | Slack duplicate suppressed by content identity |
+| Same calendar event is extracted again unchanged | Calendar attachment skipped |
+| Event is explicitly changed or rescheduled | Stable UID reused and iCalendar `SEQUENCE` incremented |
+| Event is explicitly cancelled | Cancellation attachment sent with the original UID |
+| Same cancellation appears again | Repeated cancellation skipped |
+| Trigger overlaps another run | Second run exits because the script lock is held |
+| Slack succeeds but calendar fails | Calendar retries; successful notification state is retained |
+| Calendar succeeds but Slack fails | Slack retries; stable event state prevents a new event identity |
 
----
+The model supplies a durable `event_key` without a date, time, child name, school name, or action word. V2 combines that key with the configured school to identify future updates.
 
-## 🧪 Testing Tips
+### Apple Calendar limitation
 
-- **Send yourself test emails:** Forward a real school email to your collector Gmail. Apply the label manually. Mark it unread. Run `manualRun()`.
-- **Check logs obsessively at first:** The Execution Log shows exactly what happened — which emails were read, what Gemini returned, which events passed/failed verification.
-- **Test the hallucination checker:** Run `test5_HallucinationCheck()` to see the verification engine catch fake events from a vague email.
+This project sends standard `.ics` attachments. A parent must open the attachment to add, update, or cancel an Apple Calendar event. Google Apps Script cannot silently modify an iCloud calendar through an emailed attachment.
 
----
+V2 cannot automatically identify or delete duplicates imported by V1 because V1 generated a random UID for every attachment and stored no event ledger. Existing duplicates must be removed manually. New deduplication begins after V2 is installed.
 
-## 🤝 Contributing
+For automatic create/update/delete behavior, use a shared Google Calendar and subscribe to that calendar from Apple devices. That requires replacing the email-attachment delivery function with `CalendarApp` operations.
 
-Contributions welcome! Ideas for improvement:
+## Accuracy controls
 
-- [ ] Google Calendar direct integration (skip `.ics` emails)
-- [ ] Telegram bot as alternative notification channel
-- [ ] Weekly digest summary on Sunday evenings
-- [ ] Multi-language support for non-English school emails
-- [ ] Web dashboard for viewing past summaries
+An event reaches Calendar only when all applicable checks pass:
 
----
+- `confidence` is `high`.
+- Date is a real `YYYY-MM-DD` calendar date.
+- Date occurs in the exact source passage.
+- Explicit year does not conflict with the extracted year.
+- An adjacent weekday agrees with the extracted date.
+- End date is valid and does not precede the start date.
+- Times use valid 24-hour `HH:MM` values.
+- Every extracted start/end time appears in the source passage.
+- The date is plausible relative to the message's received date.
 
-## 📄 License
+Relative-only phrases such as “tomorrow,” “next Friday,” or “soon” do not create calendar events unless the email also includes an explicit date.
 
-MIT License — see [LICENSE](LICENSE) for details.
+Low-confidence or unverifiable events appear in Slack as blocked and do not create attachments.
 
----
+## Model choice
 
-## 🙏 Acknowledgments
+The default is pinned to:
 
-- **Google Gemini** for free AI summarization
-- **Google Apps Script** for free serverless execution
-- **Slack** for reliable, free notifications
-- Built by a parent, for parents. Because nobody should miss picture day again.
+```text
+gemini-3.5-flash-lite
+```
+
+It is a stable, low-latency model suited to high-volume extraction. Pinning a stable model is safer for unattended production than using a moving `latest` alias.
+
+Check Google's current [Gemini model catalog](https://ai.google.dev/gemini-api/docs/models) and [deprecation schedule](https://ai.google.dev/gemini-api/docs/deprecations) before changing the model. V2 uses the Gemini Generate Content REST endpoint with structured JSON output.
+
+## Privacy and security
+
+School emails may contain children's names, schedules, class information, and contact details.
+
+- Use a dedicated collector Gmail account with the minimum necessary mail.
+- Keep the repository configuration generic if the repository is public.
+- Store credentials only in Script properties.
+- Restrict the Gemini API key to the Generative Language API when possible.
+- Review Google's current Gemini API data-use and billing terms before sending real school messages.
+- Use a private Slack channel limited to intended family members.
+- Do not log complete email bodies or API keys.
+- Revoke any credential that appears in source control or a shared screenshot.
+
+## State and retention
+
+V2 stores small JSON records in Script properties:
+
+- Message and Slack-notification state: 180 days.
+- Calendar event state: 730 days.
+
+Old state is pruned automatically. The script searches a 14-day Gmail lookback and processes at most 20 pending messages per scope during one run; larger backlogs drain across subsequent runs.
+
+By default, `MARK_MESSAGES_READ` is `false`, so the monitor does not alter Gmail read/unread state.
+
+## Functions
+
+| Function | Purpose |
+|---|---|
+| `checkSchoolEmails()` | Scheduled entry point |
+| `manualRun()` | Immediate production check |
+| `setup()` | Validate configuration and create trigger |
+| `removeTriggers()` | Remove monitor triggers |
+| `baselineExistingMessages()` | Record recent matching messages without sending |
+| `runLocalVerificationTests()` | Offline verifier tests |
+| `testGeminiConnection()` | Synthetic Gemini test |
+| `testSlackConnection()` | Slack smoke test |
+| `testCalendarConnection()` | Calendar attachment smoke test |
+
+## Troubleshooting
+
+### Missing Script property
+
+```text
+Missing required Script property: GEMINI_API_KEY
+```
+
+Open **Project Settings → Script properties** and add the exact property name. Do not add spaces or quotation marks.
+
+### Gmail label does not exist
+
+Create the label in the collector Gmail account or update `gmail_label` / `TOWN_LABEL` in `CONFIG`. Apps Script must be running as the account that owns those labels.
+
+### Gemini 404 or model-not-found error
+
+Confirm the configured model is listed in the current [Gemini model catalog](https://ai.google.dev/gemini-api/docs/models). Model availability and deprecation dates change over time.
+
+### Gemini 429 error
+
+The project has reached a rate or billing quota. Review the Gemini API project and quota in Google AI Studio / Google Cloud. V2 retries transient `429` and server errors three times with backoff.
+
+### Slack test fails
+
+- Confirm the property name is exactly `SLACK_WEBHOOK_URL`.
+- Confirm the webhook begins with `https://hooks.slack.com/services/`.
+- Confirm the Slack app and channel still exist.
+- Rotate the webhook if it has ever been exposed.
+
+### Calendar time is shifted
+
+Ensure both the Apps Script project time zone and `CONFIG.TIMEZONE` use the same IANA time zone. Timed events are converted to UTC in the `.ics` file after parsing them in the configured local time zone.
+
+### An event was blocked
+
+Read the Slack reason and compare it with the original email. The verifier intentionally favors missing an ambiguous event over adding an unsupported date or time.
+
+More examples are available in [`docs/CUSTOMIZATION.md`](docs/CUSTOMIZATION.md) and [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
+
+## License
+
+[MIT](LICENSE)

@@ -1,313 +1,169 @@
-# Customization Guide
+# Customization guide
 
-## Number of Kids
+All ordinary customization happens in the `CONFIG` block at the top of `school-email-monitor.js`. Credentials belong in Apps Script properties, never in this file.
 
-### One Child Only
+## Children and schools
 
-```javascript
-KIDS: [
-  { name: 'Alex', grade: '6th grade', gmail_label: 'school-6th', emoji: '📘' },
-],
-```
-
-### Three or More Children
+Add one entry per child:
 
 ```javascript
 KIDS: [
-  { name: 'Alex', grade: '6th grade', gmail_label: 'school-6th', emoji: '📘' },
-  { name: 'Sam', grade: '2nd grade', gmail_label: 'school-2nd', emoji: '📗' },
-  { name: 'Jordan', grade: '9th grade', gmail_label: 'school-9th', emoji: '📙' },
-],
-```
-
-Each child needs its own Gmail label with forwarding set up (see README Step 2).
-
----
-
-## Schedule
-
-### Change Check Frequency
-
-Edit `setupTriggers()`. After changes, run `removeTriggers()` then `setupTriggers()`.
-
-```javascript
-// Every 4 hours
-ScriptApp.newTrigger('checkSchoolEmails')
-  .timeBased().everyHours(4).create();
-
-// Every 2 hours
-ScriptApp.newTrigger('checkSchoolEmails')
-  .timeBased().everyHours(2).create();
-
-// Every hour (uses more Gemini quota)
-ScriptApp.newTrigger('checkSchoolEmails')
-  .timeBased().everyHours(1).create();
-```
-
-### Fixed Times
-
-```javascript
-function setupTriggers() {
-  // Clear existing
-  const existing = ScriptApp.getProjectTriggers();
-  for (const trigger of existing) {
-    if (trigger.getHandlerFunction() === 'checkSchoolEmails') {
-      ScriptApp.deleteTrigger(trigger);
-    }
+  {
+    name: 'Alex',
+    grade: '7th grade',
+    school: 'Example Middle School',
+    gmail_label: 'school-alex',
+    emoji: '📘'
+  },
+  {
+    name: 'Sam',
+    grade: '3rd grade',
+    school: 'Example Elementary School',
+    gmail_label: 'school-sam',
+    emoji: '📗'
   }
-
-  // 7 AM — morning check
-  ScriptApp.newTrigger('checkSchoolEmails')
-    .timeBased().atHour(7).everyDays(1).create();
-
-  // 2 PM — afternoon check
-  ScriptApp.newTrigger('checkSchoolEmails')
-    .timeBased().atHour(14).everyDays(1).create();
-
-  // 9 PM — evening check
-  ScriptApp.newTrigger('checkSchoolEmails')
-    .timeBased().atHour(21).everyDays(1).create();
-}
+]
 ```
 
-### Weekdays Only
+Each `gmail_label` must already exist in the Gmail account that owns the Apps Script project.
 
-Google Apps Script doesn't natively support weekday-only triggers, but you can add a check at the top of `checkSchoolEmails()`:
+The `grade` and `school` fields are provided to Gemini as audience filters. Use the wording normally found in the school's messages, such as `kindergarten`, `Grade 3`, or `7th grade`.
+
+## District-wide mail
+
+Configure a separate Gmail label:
 
 ```javascript
-function checkSchoolEmails() {
-  const day = new Date().getDay(); // 0=Sun, 6=Sat
-  if (day === 0 || day === 6) {
-    Logger.log('Weekend — skipping.');
-    return;
-  }
-  // ... rest of function
-}
+TOWN_LABEL: 'school-district',
+TOWN_NAME: 'Example School District',
+TOWN_EMOJI: '🏛️'
 ```
 
----
-
-## Notification Channels
-
-### Use SMS Instead of Slack
-
-Replace the `sendSlack()` function with email-to-SMS:
+Disable district processing with:
 
 ```javascript
-const CONFIG = {
-  // ... other settings ...
-  PARENT1_SMS: '5551234567@tmomail.net',
-  PARENT2_SMS: '5559876543@vtext.com',
-};
-
-function sendSlack(message) {
-  // Send to both parents via SMS gateway
-  MailApp.sendEmail({ to: CONFIG.PARENT1_SMS, subject: '', body: message });
-  Utilities.sleep(1000);
-  MailApp.sendEmail({ to: CONFIG.PARENT2_SMS, subject: '', body: message });
-}
+TOWN_LABEL: ''
 ```
 
-**Carrier SMS gateways:**
-
-| Carrier | Gateway |
-|---|---|
-| T-Mobile | `number@tmomail.net` |
-| AT&T | `number@txt.att.net` |
-| Verizon | `number@vtext.com` |
-| Sprint | `number@messaging.sprintpcs.com` |
-
-Note: SMS gateways are unreliable. See README for why Slack is recommended.
-
-### Use Telegram Instead of Slack
-
-1. Open Telegram → search `@BotFather` → send `/newbot` → follow prompts → get token
-2. Create a group → add both parents + the bot
-3. Get the chat ID by sending a message in the group and visiting `https://api.telegram.org/bot<TOKEN>/getUpdates`
+## Calendar recipient and timezone
 
 ```javascript
-const CONFIG = {
-  // ... other settings ...
-  TELEGRAM_BOT_TOKEN: 'your-bot-token',
-  TELEGRAM_CHAT_ID: '-1001234567890',
-};
-
-function sendSlack(message) {
-  // Repurpose function name to send via Telegram
-  const url = 'https://api.telegram.org/bot' + CONFIG.TELEGRAM_BOT_TOKEN + '/sendMessage';
-  UrlFetchApp.fetch(url, {
-    method: 'post',
-    contentType: 'application/json',
-    payload: JSON.stringify({
-      chat_id: CONFIG.TELEGRAM_CHAT_ID,
-      text: message,
-      parse_mode: 'Markdown'
-    })
-  });
-}
+CALENDAR_EMAIL: 'parent@example.com',
+TIMEZONE: 'America/New_York'
 ```
 
----
+Set the same timezone under **Apps Script → Project Settings**. Use an IANA timezone name.
 
-## Calendar
-
-### Use Google Calendar Instead of Apple Calendar
-
-Replace `sendCalendarInvite()` with direct Google Calendar API:
+If a timed event has no explicit end time, `DEFAULT_EVENT_MINUTES` controls its duration:
 
 ```javascript
-function sendCalendarInvite(event) {
-  const calendarId = 'your-family-calendar-id@group.calendar.google.com';
-  const cal = CalendarApp.getCalendarById(calendarId);
-  if (!cal) {
-    Logger.log('Calendar not found: ' + calendarId);
-    return;
-  }
-
-  const startDate = parseEventDate(event.date, event.time);
-
-  if (event.time) {
-    const endDate = event.end_time
-      ? parseEventDate(event.date, event.end_time)
-      : new Date(startDate.getTime() + 60 * 60 * 1000);
-    cal.createEvent(event.title, startDate, endDate, {
-      description: event.description || ''
-    });
-  } else {
-    cal.createAllDayEvent(event.title, startDate, {
-      description: event.description || ''
-    });
-  }
-
-  Logger.log('Google Calendar event created: ' + event.title);
-}
+DEFAULT_EVENT_MINUTES: 60
 ```
 
-This adds events directly — no email or tapping required.
+## Gmail behavior
 
----
+V2 processes messages whether they are manually read or unread. It tracks Gmail message IDs in Script properties.
 
-## Filtering
-
-### Same School, Both Kids (Can't Filter by Sender)
-
-If both kids attend the same school and emails come from the same address, you have two options:
-
-**Option A: Forward everything to one alias, let AI sort**
-
-Use a single label and modify CONFIG:
+Keep messages unread after processing:
 
 ```javascript
-KIDS: [
-  { name: 'Alex', grade: '6th grade', gmail_label: 'school-all', emoji: '📘' },
-  { name: 'Sam', grade: '2nd grade', gmail_label: 'school-all', emoji: '📗' },
-],
+MARK_MESSAGES_READ: false
 ```
 
-The AI will process the same emails twice but filter for different grades each time. This uses more Gemini API calls but works.
-
-**Option B: Filter by subject keywords**
-
-If the school uses grade-specific subject lines, create Gmail filters based on subject keywords.
-
-### Skip Town/District Emails
-
-Set `TOWN_LABEL` to an empty string and modify `checkSchoolEmails()`:
+Mark successfully handled messages read:
 
 ```javascript
-function checkSchoolEmails() {
-  for (const kid of CONFIG.KIDS) {
-    processKidEmails(kid);
-    Utilities.sleep(2000);
-  }
-  // Comment out or remove:
-  // processTownEmails();
-}
+MARK_MESSAGES_READ: true
 ```
 
----
-
-## Verification Tuning
-
-### Make Verification Stricter
-
-Increase the source quote match threshold from 60% to 80%:
+Change the Gmail search window and per-run batch size:
 
 ```javascript
-if (matchRate < 0.8) {  // was 0.6
+LOOKBACK_DAYS: 14,
+MAX_MESSAGES_PER_SCOPE: 20,
+MAX_EMAIL_CHARS: 18000
 ```
 
-### Make Verification More Lenient
+Larger values increase Gemini usage and Apps Script runtime. The default batch size lets a backlog drain across multiple runs.
 
-Decrease to 40% (not recommended — increases hallucination risk):
+## Trigger frequency
+
+The default `setup()` creates one four-hour trigger:
 
 ```javascript
-if (matchRate < 0.4) {  // was 0.6
+ScriptApp.newTrigger('checkSchoolEmails').timeBased().everyHours(4).create();
 ```
 
-### Add Custom Date Patterns
-
-If your school uses unusual date formats, add them to the `datePatterns` array in `verifyExtraction()`:
+Supported alternatives include:
 
 ```javascript
-// Example: "20th of February" or "Week of 2/10"
-datePatterns.push(dayNum + 'th of ' + monthName);
-datePatterns.push('week of ' + monthNum + '/' + dayNum);
+// Every two hours
+ScriptApp.newTrigger('checkSchoolEmails').timeBased().everyHours(2).create();
+
+// Once per day, during the 7 AM scheduling window
+ScriptApp.newTrigger('checkSchoolEmails').timeBased().atHour(7).everyDays(1).create();
 ```
 
----
+After changing trigger code, run `removeTriggers()` and then `setup()`.
 
-## Silence Periods
+The script lock prevents two monitor executions from running concurrently.
 
-### Disable During Summer/Breaks
+## Gemini model
 
-Rather than removing triggers, add a date check:
+The repository pins a stable model:
 
 ```javascript
-function checkSchoolEmails() {
-  const now = new Date();
-  const month = now.getMonth(); // 0=Jan, 6=Jul, 7=Aug
-
-  // Skip June 15 through August 25
-  if ((month === 5 && now.getDate() >= 15) || month === 6 || month === 7
-      || (month === 7 && now.getDate() <= 25)) {
-    Logger.log('Summer break — skipping.');
-    return;
-  }
-
-  // ... rest of function
-}
+GEMINI_MODEL: 'gemini-3.5-flash-lite'
 ```
 
----
+Consult the current [Gemini model catalog](https://ai.google.dev/gemini-api/docs/models) and [deprecation schedule](https://ai.google.dev/gemini-api/docs/deprecations) before changing it. Avoid undocumented or shut-down model IDs. A moving `latest` alias may change behavior without a source-code change.
 
-## AI Model Selection
+V2 depends on structured JSON output. Any replacement model must support the response schema used by the Generate Content endpoint.
 
-The default model is `gemini-2.5-flash-lite`. If it becomes unavailable or you want to experiment:
+## State retention
 
 ```javascript
-// In CONFIG, change GEMINI_MODEL:
-GEMINI_MODEL: 'gemini-2.5-flash-lite',    // Default — fastest, free
-GEMINI_MODEL: 'gemini-2.0-flash-lite',    // Fallback 1
-GEMINI_MODEL: 'gemini-2.0-flash',         // Fallback 2 — slightly slower, higher quality
-GEMINI_MODEL: 'gemini-1.5-flash-latest',  // Fallback 3 — older but stable
+STATE_RETENTION_DAYS: 180,
+EVENT_RETENTION_DAYS: 730
 ```
 
-No other code changes needed when switching models. The API endpoint and parameters are the same across all Gemini Flash models.
+Message and notification identities expire after `STATE_RETENTION_DAYS`. Calendar UIDs and update sequences expire after `EVENT_RETENTION_DAYS`. The script prunes expired state automatically.
 
-**Checking available models:**
+Keep event retention long enough to cover updates to events created far in advance.
 
-Run this in a test function to see what's available on your API key:
+## Notification content
 
-```javascript
-function listModels() {
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models?key=' + CONFIG.GEMINI_API_KEY;
-  const response = UrlFetchApp.fetch(url);
-  const models = JSON.parse(response.getContentText()).models;
-  for (const m of models) {
-    if (m.name.includes('flash')) {
-      Logger.log(m.name + ' — ' + m.displayName);
-    }
-  }
-}
-```
+Slack facts intentionally use exact verified source passages instead of AI-authored summaries. This is an accuracy safeguard.
+
+The heading, source subject, verified passages, event status, and calendar delivery outcome are assembled in `buildSlackMessage_()`. If you customize it:
+
+- Continue escaping email-derived strings with `slackEscape_()`.
+- Keep messages below Slack's limits.
+- Do not remove blocked-event reasons.
+- Do not display raw API errors or credentials.
+
+## Calendar delivery
+
+The default sends `.ics` attachments for Apple Calendar compatibility. Creation, updates, and cancellations share a deterministic UID stored in Script properties.
+
+Changing to direct Google Calendar operations is possible, but it should be implemented inside `deliverCalendarEvent_()` while retaining:
+
+- The persistent event identity.
+- Payload-hash duplicate checks.
+- Update sequence/state.
+- Cancellation state.
+- Retry behavior.
+
+Replacing only `sendCalendarEmail_()` without considering the surrounding state machine can reintroduce duplicates.
+
+## Multiple notification channels
+
+`sendSlack_()` returns `true` only after Slack confirms success. A replacement must preserve that success/failure contract so message processing remains retry-safe.
+
+For a second Slack channel, store a second webhook in another Script property and return success only after both intended deliveries succeed. Be aware that no external services share a transaction, so exactly-once multi-channel delivery cannot be guaranteed.
+
+## Migration behavior
+
+Use `baselineExistingMessages()` once when moving from V1 and recent messages were already handled. It does not call Gemini or send output.
+
+Do not use the old `school-bot/processed` label for V2 deduplication. A label attached to a Gmail thread can cause future replies in that thread to be skipped; V2 deliberately tracks individual message IDs instead.

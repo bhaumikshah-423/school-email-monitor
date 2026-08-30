@@ -1,178 +1,197 @@
-# Troubleshooting Guide
+# Troubleshooting guide
 
-## Gemini API Issues
+Run the built-in tests in this order and stop at the first failure:
 
-### 404 — Model Not Found
+1. `runLocalVerificationTests()`
+2. `testGeminiConnection()`
+3. `testSlackConnection()`
+4. `testCalendarConnection()`
+5. `manualRun()`
 
-```
-models/gemini-2.5-flash-lite is not found for API version v1beta
-```
+Open **Apps Script → Executions** to inspect logs and authorization failures.
 
-**Fix:** The model name may have changed. Try these in order in `CONFIG.GEMINI_MODEL`:
+## Configuration errors
 
-1. `gemini-2.5-flash-lite` (default)
-2. `gemini-2.0-flash-lite`
-3. `gemini-2.0-flash`
-4. `gemini-1.5-flash-latest`
+### Missing required Script property
 
-To check which models are currently available:
-- Visit [aistudio.google.com](https://aistudio.google.com) and look at the model dropdown
-- Or call the list endpoint: `https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_KEY`
-
-### 429 — Quota Exceeded / Rate Limited
-
-```
-You exceeded your current quota... limit: 0
+```text
+Missing required Script property: GEMINI_API_KEY
 ```
 
-**If `limit: 0`:** Your API key's project doesn't have free tier access. This is the most common setup issue.
+or:
 
-**Step-by-step fix:**
-
-1. First, try creating a fresh key in a new project:
-   - Go to [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
-   - Delete the existing key
-   - Click "Create API Key" → **"Create API key in new project"** (important: new project)
-   - Update the key in your script and try again
-
-2. If that still shows `limit: 0`, link a billing account:
-   - Go to [console.cloud.google.com/billing](https://console.cloud.google.com/billing)
-   - Click **"Create Account"** or **"Link a billing account"**
-   - Add a credit card (Google gives $300 free credit — you won't be charged)
-   - Link the billing account to the project your API key belongs to
-   - Go to [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials) to find which project your key is in
-   - Wait 5 minutes, then retry
-
-> **Note on billing + privacy:** Linking a billing account has a significant benefit beyond fixing quota errors — it moves you to Google's paid tier data terms, meaning your data is **no longer used to train their AI models**. Since school emails contain your children's names and personal information, this is the recommended setup for production use. See the README's [Data Privacy section](../README.md#%EF%B8%8F-important-free-tier-vs-paid-tier-data-privacy) for details.
-
-3. If you get `429` with a non-zero limit (e.g., `limit: 15`), you're just hitting the rate limit. The script runs a few requests per execution — this usually resolves itself. Just wait and retry.
-
-**Understanding Gemini quotas (paid tier with billing):**
-
-| Quota | Limit | Your usage |
-|---|---|---|
-| Requests per minute | 2,000 | 1-3 per run |
-| Requests per day | Unlimited | 9-12 per day |
-| Input cost | $0.10 / 1M tokens | ~$0.0005 per run |
-| Output cost | $0.40 / 1M tokens | ~$0.0002 per run |
-| **Monthly cost** | | **~$0.08-$0.25** (covered by $300 free credit) |
-
-### 403 — API Not Enabled
-
-```
-Generative Language API has not been used in project... or it is disabled
+```text
+Missing required Script property: SLACK_WEBHOOK_URL
 ```
 
-**Fix:**
-1. Go to [console.cloud.google.com/apis/library](https://console.cloud.google.com/apis/library)
-2. Search for **"Generative Language API"**
-3. Click on it → Click **"Enable"**
-4. Make sure you're enabling it on the same project that owns your API key
+Click **Project Settings** (gear icon), scroll to **Script properties**, and add the exact property name. Do not include quotation marks or extra spaces.
 
-### 400 — Bad Request
+### Invalid calendar email
 
-Usually means the email content is too long or contains characters that break JSON. The script already truncates at 28,000 characters, but if you see this, try reducing to 20,000 in the `fetchUnreadEmails` function.
+Update `CONFIG.CALENDAR_EMAIL` in the script. This value is non-secret but should remain generic in a public repository.
 
----
+### Gmail label does not exist
 
-## Slack Issues
+```text
+Gmail label does not exist: school-child1
+```
 
-### No Messages Appearing
+Confirm:
 
-1. Run `test1_Slack()` — check the Execution Log for errors
-2. Verify the webhook URL is correct (starts with `https://hooks.slack.com/services/`)
-3. Make sure the webhook is connected to the right channel
-4. Check if the Slack app/workspace is active
+- The label exists in the collector Gmail account.
+- Its spelling and capitalization match `gmail_label` / `TOWN_LABEL`.
+- The Apps Script project is owned and authorized by the collector account.
 
-### Webhook Returns 403 or 404
+## Gemini problems
 
-The webhook URL may have been revoked. Go to [api.slack.com/apps](https://api.slack.com/apps), find your app, and create a new webhook.
+### HTTP 400
 
-### Formatting Looks Wrong
+Usually indicates an unsupported request field, schema, or model. Confirm the configured model supports structured output and that the V2 schema was copied completely.
 
-Slack uses its own markdown: `*bold*`, `_italic_`, `>` for quotes. Standard markdown (`**bold**`) won't work.
+### HTTP 403
 
----
+The API key may be invalid, restricted incorrectly, or owned by a project where the Generative Language API is unavailable. Check the key in Google AI Studio / Google Cloud.
 
-## Gmail / Email Issues
+### HTTP 404 model not found
 
-### No Emails Found
+Model IDs and availability change. Check the current [Gemini model catalog](https://ai.google.dev/gemini-api/docs/models) and [deprecation schedule](https://ai.google.dev/gemini-api/docs/deprecations), then use a current stable model that supports structured output.
 
-1. Log into the collector Gmail account in your browser
-2. Check that emails exist with the correct label
-3. Verify emails are **unread** (the script only processes unread emails)
-4. Check label name matches exactly (case-sensitive): `school-6th` ≠ `School-6th`
-5. Try running `GmailApp.search('is:unread label:school-6th')` in a test function
+The V2 default is:
 
-### Emails Getting Labeled Wrong
+```text
+gemini-3.5-flash-lite
+```
 
-- If using the `+alias` trick: verify "To" address filters are correct
-- If using keyword filters: check that keywords don't overlap between kids
-- Send a test email to each alias and verify labels are applied
+Do not copy old fallback lists containing Gemini 1.x or shut-down 2.0 models.
 
-### .ics Not Opening on iPhone
+### HTTP 429
 
-- Open from **Apple Mail** app, not the Gmail app. Gmail doesn't handle `.ics` attachments well on iOS.
-- Check spam/junk folder
-- Make sure the email isn't being blocked by your email provider
+The project reached a rate, daily, or billing quota. V2 retries `429` and transient server errors three times with backoff. If it continues:
 
-### Broken Characters (??????) in Emails
+1. Check Gemini API usage and quota for the project that owns the key.
+2. Confirm billing/free-tier availability for your region and account.
+3. Wait for the quota window to reset or request a quota increase.
 
-This happens when emojis are used in the sender name or plain text email body. The current version uses plain text for the sender name (`School Email Monitor`) and HTML for the email body, which fixes this.
+### Gemini test returns no verified event
 
----
+Inspect the logged structured result. Common causes:
 
-## Script Issues
+- The selected model did not follow the response schema.
+- The model extracted a date/time that failed local evidence checks.
+- The model is unavailable for the API key's project.
+- Only part of `school-email-monitor.js` was copied into `Code.gs`.
 
-### Authorization Required Error
+Do not weaken verification merely to make the test pass. Fix the model/configuration issue first.
 
-When triggers fire automatically for the first time, you may get an email from Google saying "Script failed — authorization required."
+## Slack problems
 
-**Fix:** Go to the script editor, manually run `checkSchoolEmails()` using the ▶ button, and re-approve permissions. Triggers will work after that.
+### No test message
 
-### Script Timeout (6 Minutes)
+- Confirm `SLACK_WEBHOOK_URL` is a Script property, not a value in `CONFIG`.
+- Confirm it begins with `https://hooks.slack.com/services/`.
+- Confirm the Slack app is installed and the webhook is attached to the expected channel.
+- Inspect the logged HTTP status and response.
 
-Google Apps Script has a 6-minute execution limit. This is very rare for school emails but could happen if:
+If the webhook was ever committed, pasted publicly, or included in a screenshot, revoke it and create a new one.
 
-- 100+ unread emails have accumulated (e.g., over summer break)
-- **Fix:** Mark some emails as read manually, then run the script
+### Duplicate Slack notification
 
-### Triggers Not Firing
+V2 hashes normalized sender, subject, and body content. Messages with meaningful body differences are treated as new notifications.
 
-1. Check the ⏰ Triggers tab — are triggers listed?
-2. Check 📋 Executions — are there failed runs?
-3. Run `removeTriggers()` then `setupTriggers()` to reset
-4. Google occasionally disables triggers on accounts with repeated failures. Fix the underlying error and re-create triggers.
+A duplicate can still occur in the narrow failure window where Slack accepted a message but Apps Script failed before saving success state. External Slack delivery and Script properties cannot participate in one atomic transaction.
 
----
+## Gmail problems
 
-## Verification Issues
+### No messages found
 
-### Legitimate Events Being Blocked
+1. Verify the Gmail label is applied to the message.
+2. Confirm its received date falls within `LOOKBACK_DAYS`.
+3. Confirm you did not intentionally record it with `baselineExistingMessages()`.
+4. Confirm the Apps Script project is using the intended collector account.
 
-The verification engine might block valid events if:
+Read/unread status does not affect V2 searches.
 
-- The date format in the email is unusual (e.g., `2/20/26` without the century)
-- The email uses a language other than English for month names
+### A new reply was missed
 
-**Fix:** You can add more date patterns to the `datePatterns` array in `verifyExtraction()`.
+V2 tracks individual message IDs and should process a new reply even when the thread contains an older handled message. Confirm the new reply has the configured Gmail label and is within the lookback window.
 
-### False Positives Getting Through
+Do not add the old `-label:school-bot/processed` query back to V2; Gmail labels are thread-oriented and can hide later replies.
 
-If an event passes verification but is wrong:
+### First V2 run wants to process old mail
 
-- Check if the source quote actually exists in the email
-- The 60% word-match threshold might need to be raised to 70% or 80%
-- Adjust the `matchRate < 0.6` threshold in the verification engine
+Stop the trigger and run `baselineExistingMessages()` once if V1 already handled the recent messages. Then run `setup()`.
 
----
+## Calendar problems
 
-## Common Configuration Mistakes
+### `.ics` attachment does not open
 
-| Mistake | Symptom | Fix |
-|---|---|---|
-| Wrong Gmail account | Emails not found | Apps Script must be created while logged into the collector Gmail |
-| Spaces in API key | Gemini errors | Remove any leading/trailing spaces from the key |
-| Wrong timezone | Events at wrong time | Use the exact string from the [tz database](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) |
-| Label doesn't exist | No emails processed | Create the label in Gmail first, then create the filter |
-| Personal email typo | No .ics invites | Verify the email address in CONFIG.PERSONAL_EMAIL |
+- Try Apple Mail; some mobile Gmail clients handle calendar attachments differently.
+- Download the attachment before opening it.
+- Confirm the message was not moved to spam or stripped by the recipient's mail provider.
+
+### Event time is shifted
+
+Both time zones must match:
+
+1. `CONFIG.TIMEZONE` in the script.
+2. **Apps Script → Project Settings → Time zone**.
+
+Timed events are parsed in that local zone and written to iCalendar in UTC.
+
+### Update creates another Apple event
+
+V2 reuses a stable iCalendar UID and increments `SEQUENCE`, but the receiving calendar application ultimately decides how an opened attachment is imported. Make sure the update attachment is opened in the same calendar client and calendar used for the original.
+
+Events imported from V1 had random UIDs and cannot be matched by V2.
+
+### Cancellation did not remove the event
+
+A cancellation is an emailed `.ics` attachment with `METHOD:CANCEL`, `STATUS:CANCELLED`, and the original UID. Open the attachment in the calendar client that imported the original V2 event.
+
+Apps Script cannot silently modify an iCloud calendar through email.
+
+### Existing duplicates remain
+
+V2 cannot identify V1 duplicates because V1 generated random UIDs and stored no calendar ledger. Remove those manually. V2 deduplication applies to events it tracks after migration.
+
+## Verification problems
+
+### A legitimate event is blocked
+
+Slack displays the reason. Expected strict cases include:
+
+- Date is relative-only (`tomorrow`, `next Friday`).
+- Date is absent from the event's exact source passage.
+- Weekday conflicts with the calendar date.
+- Extracted time is absent from the source passage.
+- End date precedes start date.
+- Model marked the audience or details low confidence.
+
+This project intentionally prefers a missed/flagged event over an unsupported calendar entry.
+
+### An irrelevant exact quote appears in Slack
+
+The quote is guaranteed to exist in the email, but Gemini still selects relevance. Improve the child `grade`, `school`, Gmail filters, or district label before changing verifier rules.
+
+## Trigger problems
+
+### Authorization required
+
+Run `manualRun()` from the editor and approve the requested Gmail, external-request, and email permissions. Installable triggers execute as the user who created them.
+
+### Trigger does not run
+
+1. Open **Triggers** and confirm a `checkSchoolEmails` trigger exists.
+2. Open **Executions** and inspect failures.
+3. Fix the error.
+4. Run `removeTriggers()` and then `setup()`.
+
+### “Another run is active”
+
+This is expected when two invocations overlap. The second exits safely. If it occurs constantly, inspect the first execution for slow Gemini requests or a large backlog.
+
+## Quotas and storage
+
+The monitor uses Gmail, URL Fetch, email sending, triggers, and Script properties, all of which have Apps Script quotas. Very large backlogs drain in batches.
+
+State is automatically pruned. If property storage is unexpectedly exhausted, inspect the project before deleting state: removing event records also removes the UID/sequence history needed for future deduplication, updates, and cancellations.
