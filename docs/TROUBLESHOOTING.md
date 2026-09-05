@@ -129,6 +129,10 @@ Stop the trigger and run `baselineExistingMessages()` once if V1 already handled
 - Download the attachment before opening it.
 - Confirm the message was not moved to spam or stripped by the recipient's mail provider.
 
+### Move the native attachment to the top or bottom
+
+The receiving mail application controls where its attachment chip appears. Apps Script cannot force that native UI element to a particular location. V2 instead places a prominent calendar-file callout near the top of the designed email body.
+
 ### Event time is shifted
 
 Both time zones must match:

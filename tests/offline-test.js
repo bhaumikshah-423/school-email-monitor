@@ -21,12 +21,13 @@ function formatDate(date, timezone, pattern) {
     HH: parts.hour, mm: parts.minute, ss: parts.second,
     EEEE: parts.weekday,
     MMMM: new Intl.DateTimeFormat('en-US', { timeZone: timezone, month: 'long' }).format(date),
+    MMM: new Intl.DateTimeFormat('en-US', { timeZone: timezone, month: 'short' }).format(date),
     d: String(Number(parts.day))
   };
   if (pattern === 'yyyy-MM-dd') return `${parts.year}-${parts.month}-${parts.day}`;
   if (pattern === 'EEEE, MMMM d, yyyy') return `${parts.weekday}, ${replacements.MMMM} ${Number(parts.day)}, ${parts.year}`;
   if (pattern === "yyyyMMdd'T'HHmmss'Z'") return `${parts.year}${parts.month}${parts.day}T${parts.hour}${parts.minute}${parts.second}Z`;
-  return pattern.replace(/yyyy|MMMM|MM|dd|EEEE|HH|mm|ss|d/g, token => replacements[token] || token);
+  return pattern.replace(/yyyy|MMMM|MMM|MM|dd|EEEE|HH|mm|ss|d/g, token => replacements[token] || token);
 }
 
 const context = {
@@ -109,6 +110,13 @@ assert(sentEmails.length === 1, 'one email after first event');
 const firstIcs = sentEmails[0][3].attachments[0].data;
 const firstUid = firstIcs.match(/UID:([^\r\n]+)/)[1];
 assert(/SEQUENCE:0/.test(firstIcs), 'first invite uses sequence zero');
+const firstHtml = sentEmails[0][3].htmlBody;
+assert(firstHtml.indexOf('Calendar file attached') < firstHtml.indexOf('EVENT DETAILS'), 'calendar attachment callout appears before event details');
+assert(/max-width:600px/.test(firstHtml) && /VERIFIED SOURCE/.test(firstHtml), 'polished event-card layout is present');
+assert((firstHtml.match(/<table\b/g) || []).length === (firstHtml.match(/<\/table>/g) || []).length, 'email layout has balanced table tags');
+assert((firstHtml.match(/<tr\b/g) || []).length === (firstHtml.match(/<\/tr>/g) || []).length, 'email layout has balanced table-row tags');
+assert((firstHtml.match(/<td\b/g) || []).length === (firstHtml.match(/<\/td>/g) || []).length, 'email layout has balanced table-cell tags');
+assert(sentEmails[0][3].attachments[0].mimeType.includes('method=PUBLISH'), 'create attachment declares iCalendar publish method');
 
 result = context.deliverCalendarEvent_(baseEvent, scope);
 assert(result.ok && /duplicate skipped/.test(result.note), 'exact duplicate is skipped');
@@ -133,6 +141,7 @@ const cancelledIcs = sentEmails[2][3].attachments[0].data;
 assert(/METHOD:CANCEL/.test(cancelledIcs), 'cancellation uses ICS CANCEL method');
 assert(/STATUS:CANCELLED/.test(cancelledIcs), 'cancellation marks event cancelled');
 assert(cancelledIcs.match(/UID:([^\r\n]+)/)[1] === firstUid, 'cancellation reuses stable UID');
+assert(sentEmails[2][3].attachments[0].mimeType.includes('method=CANCEL'), 'cancellation attachment declares iCalendar cancel method');
 
 result = context.deliverCalendarEvent_(cancelled, scope);
 assert(result.ok && /Duplicate cancellation skipped/.test(result.note), 'duplicate cancellation skipped');

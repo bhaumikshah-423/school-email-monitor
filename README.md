@@ -20,6 +20,7 @@ It runs entirely in Google Apps Script—no server is required.
 - Exact source-passage verification for parent notifications.
 - Strict validation of real dates, date evidence, explicit years, adjacent weekdays, start/end times, and plausible date ranges.
 - Low-confidence events are shown as blocked and are never sent to Calendar.
+- A polished, mobile-friendly event email with a prominent calendar-file callout near the top.
 - Safe HTML, Slack, and iCalendar escaping.
 - Retry-aware output state: successful work is not intentionally repeated when another delivery fails.
 - API keys and webhooks are stored in Apps Script properties, not source code.
@@ -233,6 +234,8 @@ The model supplies a durable `event_key` without a date, time, child name, schoo
 ### Apple Calendar limitation
 
 This project sends standard `.ics` attachments. A parent must open the attachment to add, update, or cancel an Apple Calendar event. Google Apps Script cannot silently modify an iCloud calendar through an emailed attachment.
+
+The email places a prominent “Calendar file attached” callout immediately below the event title. The native attachment chip itself may still appear at the top or bottom because its location is controlled by Apple Mail, Gmail, Outlook, or another receiving client—not by the Apps Script HTML.
 
 V2 cannot automatically identify or delete duplicates imported by V1 because V1 generated a random UID for every attachment and stored no event ledger. Existing duplicates must be removed manually. New deduplication begins after V2 is installed.
 

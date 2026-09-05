@@ -545,11 +545,27 @@ function sendCalendarEmail_(event, action, uid, sequence) {
   lines.push('END:VCALENDAR');
 
   const ics = lines.map(foldIcsLine_).join('\r\n') + '\r\n';
-  const actionLabel = cancelled ? 'Cancelled' : (sequence > 0 ? 'Updated' : 'School Event');
+  const isUpdate = !cancelled && sequence > 0;
+  const actionLabel = cancelled ? 'Cancelled' : (isUpdate ? 'Updated' : 'School Event');
+  const statusLabel = cancelled ? 'EVENT CANCELLED' : (isUpdate ? 'EVENT UPDATED' : 'NEW SCHOOL EVENT');
+  const accent = cancelled ? '#b42318' : (isUpdate ? '#b54708' : '#175cd3');
+  const accentSoft = cancelled ? '#fef3f2' : (isUpdate ? '#fffaeb' : '#eff8ff');
+  const accentBorder = cancelled ? '#fecdca' : (isUpdate ? '#fedf89' : '#b2ddff');
   const dateLabel = formatReadableDate_(event.date);
   const timeLabel = event.time ? formatTime12h_(event.time) : 'All day';
+  const displayDate = parseIsoDateLocal_(event.date);
+  const monthLabel = Utilities.formatDate(displayDate, CONFIG.TIMEZONE, 'MMM').toUpperCase();
+  const dayLabel = Utilities.formatDate(displayDate, CONFIG.TIMEZONE, 'd');
+  const weekdayLabel = Utilities.formatDate(displayDate, CONFIG.TIMEZONE, 'EEEE');
+  const attachmentInstruction = cancelled
+    ? 'Open <b>school-event.ics</b> in this message to apply the cancellation.'
+    : 'Open <b>school-event.ics</b> in this message to add or update your calendar.';
   const plain = [
     actionLabel.toUpperCase() + ': ' + event.title,
+    '',
+    'CALENDAR FILE ATTACHED: school-event.ics',
+    cancelled ? 'Open it to apply the cancellation.' : 'Open it to add or update this event.',
+    '',
     'Date: ' + dateLabel,
     'Time: ' + timeLabel,
     event.description ? 'Details: ' + event.description : '',
@@ -558,19 +574,55 @@ function sendCalendarEmail_(event, action, uid, sequence) {
     cancelled ? 'Open the attached .ics file to apply the cancellation.' : 'Open the attached .ics file to add or update the event.'
   ].filter(Boolean).join('\n');
 
-  const html = '<div style="font-family:Arial,sans-serif;max-width:560px">'
-    + '<h2 style="color:' + (cancelled ? '#b3261e' : '#185abc') + '">' + htmlEscape_(actionLabel) + '</h2>'
-    + '<h3>' + htmlEscape_(event.title) + '</h3>'
-    + '<p><b>Date:</b> ' + htmlEscape_(dateLabel) + '<br><b>Time:</b> ' + htmlEscape_(timeLabel) + '</p>'
-    + (event.description ? '<p>' + htmlEscape_(event.description) + '</p>' : '')
-    + '<blockquote style="border-left:3px solid #dadce0;padding-left:12px;color:#5f6368">' + htmlEscape_(event.source_quote) + '</blockquote>'
-    + '<p><b>' + (cancelled ? 'Open the attachment to apply the cancellation.' : 'Open the attachment to add or update this event.') + '</b></p>'
-    + '<p style="font-size:12px;color:#777">Verified against the original school email. Automated message; do not reply.</p>'
-    + '</div>';
+  const html = '<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">'
+    + htmlEscape_(statusLabel + ': ' + event.title + ' on ' + dateLabel) + '</div>'
+    + '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;margin:0;background:#f2f4f7">'
+    + '<tr><td align="center" style="padding:32px 12px">'
+    + '<table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px;background:#ffffff;border:1px solid #e4e7ec;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(16,24,40,0.08)">'
+    + '<tr><td style="padding:20px 28px;background:#101828">'
+    + '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr>'
+    + '<td style="font-family:Arial,sans-serif;font-size:12px;line-height:18px;font-weight:700;letter-spacing:1.4px;color:#d0d5dd">SCHOOL EMAIL MONITOR</td>'
+    + '<td align="right"><span style="display:inline-block;padding:5px 10px;border-radius:999px;background:' + accent + ';font-family:Arial,sans-serif;font-size:11px;line-height:16px;font-weight:700;letter-spacing:.5px;color:#ffffff">' + htmlEscape_(statusLabel) + '</span></td>'
+    + '</tr></table></td></tr>'
+    + '<tr><td style="padding:30px 28px 10px">'
+    + '<div style="font-family:Arial,sans-serif;font-size:13px;line-height:20px;font-weight:700;letter-spacing:.7px;color:' + accent + ';margin-bottom:8px">' + htmlEscape_(actionLabel.toUpperCase()) + '</div>'
+    + '<h1 style="margin:0;font-family:Arial,sans-serif;font-size:26px;line-height:34px;font-weight:700;color:#101828">' + htmlEscape_(event.title) + '</h1>'
+    + '</td></tr>'
+    + '<tr><td style="padding:18px 28px 0">'
+    + '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:' + accentSoft + ';border:1px solid ' + accentBorder + ';border-radius:12px">'
+    + '<tr><td width="48" valign="top" style="padding:16px 0 16px 16px"><div style="width:40px;height:40px;border-radius:10px;background:' + accent + ';font-family:Arial,sans-serif;font-size:22px;line-height:40px;text-align:center;color:#ffffff">&#128197;</div></td>'
+    + '<td style="padding:16px"><div style="font-family:Arial,sans-serif;font-size:15px;line-height:22px;font-weight:700;color:#101828">Calendar file attached</div>'
+    + '<div style="margin-top:3px;font-family:Arial,sans-serif;font-size:13px;line-height:20px;color:#475467">' + attachmentInstruction + '</div></td></tr></table>'
+    + '</td></tr>'
+    + '<tr><td style="padding:24px 28px 0">'
+    + '<div style="font-family:Arial,sans-serif;font-size:12px;line-height:18px;font-weight:700;letter-spacing:1px;color:#667085;margin-bottom:10px">EVENT DETAILS</div>'
+    + '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border:1px solid #e4e7ec;border-radius:12px">'
+    + '<tr><td width="82" align="center" valign="middle" style="padding:16px;border-right:1px solid #e4e7ec;background:#f9fafb">'
+    + '<div style="font-family:Arial,sans-serif;font-size:12px;line-height:16px;font-weight:700;letter-spacing:1px;color:' + accent + '">' + htmlEscape_(monthLabel) + '</div>'
+    + '<div style="font-family:Arial,sans-serif;font-size:30px;line-height:34px;font-weight:700;color:#101828">' + htmlEscape_(dayLabel) + '</div></td>'
+    + '<td valign="middle" style="padding:16px 18px">'
+    + '<div style="font-family:Arial,sans-serif;font-size:15px;line-height:22px;font-weight:700;color:#101828">' + htmlEscape_(weekdayLabel) + '</div>'
+    + '<div style="font-family:Arial,sans-serif;font-size:14px;line-height:22px;color:#475467">' + htmlEscape_(dateLabel) + '</div>'
+    + '<div style="margin-top:5px;font-family:Arial,sans-serif;font-size:14px;line-height:22px;font-weight:700;color:' + accent + '">' + htmlEscape_(timeLabel) + '</div>'
+    + '</td></tr></table></td></tr>'
+    + (event.description && event.description !== event.source_quote
+      ? '<tr><td style="padding:24px 28px 0"><div style="font-family:Arial,sans-serif;font-size:12px;line-height:18px;font-weight:700;letter-spacing:1px;color:#667085;margin-bottom:8px">DETAILS</div><div style="font-family:Arial,sans-serif;font-size:14px;line-height:22px;color:#344054">' + htmlEscape_(event.description) + '</div></td></tr>'
+      : '')
+    + '<tr><td style="padding:24px 28px 0">'
+    + '<div style="font-family:Arial,sans-serif;font-size:12px;line-height:18px;font-weight:700;letter-spacing:1px;color:#667085;margin-bottom:8px">VERIFIED SOURCE</div>'
+    + '<div style="padding:14px 16px;border-left:4px solid ' + accent + ';border-radius:0 8px 8px 0;background:#f9fafb;font-family:Georgia,serif;font-size:14px;line-height:22px;font-style:italic;color:#344054">&ldquo;' + htmlEscape_(event.source_quote) + '&rdquo;</div>'
+    + '</td></tr>'
+    + '<tr><td style="padding:24px 28px 30px">'
+    + '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr><td style="padding-top:18px;border-top:1px solid #eaecf0;font-family:Arial,sans-serif;font-size:12px;line-height:18px;color:#667085">'
+    + '<span style="color:#039855;font-weight:700">&#10003; Verified</span> against the original school email &nbsp;&middot;&nbsp; Automated message; do not reply'
+    + '</td></tr></table></td></tr>'
+    + '</table>'
+    + '<div style="padding:16px 8px 0;font-family:Arial,sans-serif;font-size:11px;line-height:17px;text-align:center;color:#98a2b3">Your mail app controls where the attached calendar file is displayed.</div>'
+    + '</td></tr></table>';
 
   GmailApp.sendEmail(CONFIG.CALENDAR_EMAIL, actionLabel + ': ' + event.title + ' — ' + dateLabel, plain, {
     htmlBody: html,
-    attachments: [Utilities.newBlob(ics, 'text/calendar; charset=utf-8', 'school-event.ics')],
+    attachments: [Utilities.newBlob(ics, 'text/calendar; method=' + method + '; charset=utf-8', 'school-event.ics')],
     name: 'School Email Monitor'
   });
 }
